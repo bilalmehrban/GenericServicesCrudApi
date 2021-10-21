@@ -3,16 +3,21 @@
 // FREE TO USE AS LONG AS SOFTWARE FUNDS ARE DONATED TO THE POOR
 // ---------------------------------------------------------------
 
-using System.Globalization;
 using GenericServicesCrud.Core.MappingProfiles;
 using GenericServicesCrud.Infrastructure;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Globalization;
+using System.Text;
+using System.Threading.Tasks;
+using GenericServicesCrud.DTO.JWT;
 
 namespace GenericServicesCrud.Api
 {
@@ -21,7 +26,7 @@ namespace GenericServicesCrud.Api
         public IConfiguration Configuration { get; }
 
         public Startup(IConfiguration configuration) => Configuration = configuration;
-        
+
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers().ConfigureApiBehaviorOptions(options =>
@@ -35,7 +40,7 @@ namespace GenericServicesCrud.Api
             services.AddDbContext<GenericServicesDbContext>(options => options.UseSqlServer("name=Exceptional:Store:ConnectionString"));
             ConfigureDependencyInjection(services);
             ConfigureSwagger(services);
-
+            ConfigureJwtAuthentication(services);
             services.AddCors(o => o.AddPolicy("DefaultCORSPolicy", builder =>
             {
                 builder.AllowAnyOrigin()
@@ -127,6 +132,42 @@ namespace GenericServicesCrud.Api
                 });
 
             });
+        }
+
+        private void ConfigureJwtAuthentication(IServiceCollection services)
+        {
+            var appSettingsSection = Configuration.GetSection("JwtBearer");
+            var securityKey = appSettingsSection.Get<JWTSettingDTO>().SecurityKey;
+            var secretKey = Encoding.UTF8.GetBytes(securityKey);
+            services.AddAuthentication(options => 
+            { 
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+                .AddJwtBearer(options =>
+                {
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = appSettingsSection.Get<JWTSettingDTO>().Issuer,
+                        ValidAudience = appSettingsSection.Get<JWTSettingDTO>().Audience,
+                        IssuerSigningKey = new SymmetricSecurityKey(secretKey)
+                    };
+                    options.Events = new JwtBearerEvents
+                    {
+                        OnAuthenticationFailed = context =>
+                        {
+                            if (context.Exception.GetType() == typeof(SecurityTokenExpiredException))
+                            {
+                                context.Response.Headers.Add("Token-Expired", "true");
+                            }
+                            return Task.CompletedTask;
+                        }
+                    };
+                });
         }
     }
 }
