@@ -3,6 +3,7 @@
 // FREE TO USE AS LONG AS SOFTWARE FUNDS ARE DONATED TO THE POOR
 // ---------------------------------------------------------------
 
+using System.Globalization;
 using GenericServicesCrud.Core.MappingProfiles;
 using GenericServicesCrud.Infrastructure;
 using Microsoft.AspNetCore.Builder;
@@ -18,24 +19,23 @@ namespace GenericServicesCrud.Api
     public class Startup
     {
         public IConfiguration Configuration { get; }
-        public Startup(IConfiguration configuration)
-        {
-            Configuration = configuration;
-        }
 
-        // This method gets called by the runtime. Use this method to add services to the container.
+        public Startup(IConfiguration configuration) => Configuration = configuration;
+        
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers().ConfigureApiBehaviorOptions(options =>
             {
                 options.SuppressModelStateInvalidFilter = true;
             });
+            services.AddDatabaseDeveloperPageExceptionFilter();
             services.AddExceptional(Configuration.GetSection("Exceptional"));
             services.AddHttpContextAccessor();
             services.AddAutoMapper(typeof(MappingProfile));
             services.AddDbContext<GenericServicesDbContext>(options => options.UseSqlServer("name=Exceptional:Store:ConnectionString"));
-            ConfigureDI(services);
+            ConfigureDependencyInjection(services);
             ConfigureSwagger(services);
+
             services.AddCors(o => o.AddPolicy("DefaultCORSPolicy", builder =>
             {
                 builder.AllowAnyOrigin()
@@ -44,7 +44,6 @@ namespace GenericServicesCrud.Api
             }));
         }
 
-        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             app.UseSwagger(c =>
@@ -58,12 +57,23 @@ namespace GenericServicesCrud.Api
                 c.RoutePrefix = string.Empty;
             });
 
-            app.UseExceptionHandler(env.IsDevelopment() ? "/error-development" : "/error");
+            if (env.IsDevelopment())
+            {
+                app.UseExceptionHandler("/error-development");
+                app.UseMigrationsEndPoint();
+            }
+            else
+            {
+                app.UseExceptionHandler("/error");
+                // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+                app.UseHsts();
+            }
+            CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
             app.UseExceptional();
             app.UseHttpsRedirection();
 
             app.UseRouting();
-            app.UseCors();
+            app.UseCors(options => options.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
             app.UseAuthentication();
             app.UseAuthorization();
 
@@ -73,7 +83,7 @@ namespace GenericServicesCrud.Api
             });
         }
 
-        private static void ConfigureDI(IServiceCollection services)
+        private static void ConfigureDependencyInjection(IServiceCollection services)
         {
             // Scoped (Services)
 
